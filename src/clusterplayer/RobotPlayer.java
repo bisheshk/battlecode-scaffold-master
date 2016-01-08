@@ -14,12 +14,23 @@ public class RobotPlayer {
     static Direction[] directions = {Direction.NORTH, Direction.NORTH_EAST, Direction.EAST, Direction.SOUTH_EAST,
             Direction.SOUTH, Direction.SOUTH_WEST, Direction.WEST, Direction.NORTH_WEST};
     static RobotType[] types = {RobotType.SCOUT, RobotType.SOLDIER, RobotType.GUARD,
-                                RobotType.VIPER, RobotType.TURRET};
+            RobotType.VIPER, RobotType.TURRET};
     static RobotController rc;
+    static int attackRange;
+    static int sensorRange;
+    static int captainID = 0;
+    static RobotType type;
+    static Team myTeam;
+    static Team enemyTeam;
 
     public static void run(RobotController rcIn) {
         // You can instantiate variables here.
         rc = rcIn;
+        type = rc.getType();
+        attackRange = type.attackRadiusSquared;
+        sensorRange = type.sensorRadiusSquared;
+        myTeam = rc.getTeam();
+        enemyTeam = myTeam.opponent();
 
         switch (rc.getType()) {
             case ARCHON:
@@ -48,9 +59,6 @@ public class RobotPlayer {
     }
 
     public static void runArchon() {
-        Team myTeam = rc.getTeam();
-        Team enemyTeam = myTeam.opponent();
-
         int robotState = 0; /* basically the "mode" of the archon.
                         0 --> building mode, aka early game */
         int nextToBuild = 0;
@@ -89,15 +97,9 @@ public class RobotPlayer {
             // at the end of it, the loop will iterate once per game round.
             try {
                 if (robotState == 0) {
-                    ;
+                    rc.setIndicatorString(0, "RobotState: 0");
                 }
                 Signal[] signals = rc.emptySignalQueue();
-                if (signals.length > 0) {
-                    // Set an indicator string that can be viewed in the client
-                    rc.setIndicatorString(0, "I received a signal this turn!");
-                } else {
-                    rc.setIndicatorString(0, "I don't any signal buddies");
-                }
                 if (rc.isCoreReady()) {
                     ;
                 }
@@ -145,14 +147,15 @@ public class RobotPlayer {
                         // we now have enough people in the squadron
                         robotState = 1; // robotState 1 means that we start navigating
                         rc.broadcastMessageSignal(1337, 1337, rc.getType().sensorRadiusSquared); // we send some
-                                                                                // type of signal to start moving the pod
+                        // type of signal to start moving the pod
                     }
                 } else if (robotState == 1) {
                     // robotState = 1 means that we will look for a target and go there
                     // for now that's just going to be forward
                     MapLocation targetLocation = rc.getLocation().add(Direction.NORTH, 5);
-                    while (rc.getLocation() != targetLocation){
+                    if (rc.getLocation() != targetLocation){
                         rc.move(rc.getLocation().directionTo(targetLocation));
+                        rc.broadcastMessageSignal(1111, 0, rc.getType().sensorRadiusSquared);
                     }
                 }
 
@@ -166,14 +169,20 @@ public class RobotPlayer {
     }
 
     // this reads signals or message signals
-    public static void readSignal(Signal signal) {
+    public static int readSignal(Signal signal) {
         try {
             int id = signal.getID();
             MapLocation loc = signal.getLocation();
             Team team = signal.getTeam();
             int[] message = signal.getMessage();
 
-            if (team.isPlayer()) {
+            if (message[0] == 1337 && team == rc.getTeam()) {
+                captainID = id; // for now, message[0] == 1337 sets a new captain.
+                // almost def not the best way to do it but whatever
+                return 1337;
+            }
+
+            if (id == captainID) {
                 int move_signal = 1111;
 
                 if (message[0] == move_signal) {
@@ -209,10 +218,8 @@ public class RobotPlayer {
 
     public static void runSoldier() {
         int robotState = 0; //soldier robot states:
-                            // 0 is idle
-                            // 1 is follow orders from scout
-
-        int attackRange = rc.getType().attackRadiusSquared;
+        // 0 is idle
+        // 1 is follow orders from scout
 
         try {
             ;
@@ -223,18 +230,32 @@ public class RobotPlayer {
 
         while (true) {
             try{
-
+                if (robotState == 0) { //robotState is an idle state
+                    Signal first_signal = rc.readSignal();
+                    if(readSignal(first_signal) == 1337) {
+                        robotState = 1;
+                        Clock.yield(); // set the robot's state to 1, yield the rest of the time
+                    }
+                } else if (robotState == 1) { // This is the "in a squadron, following a leader" stage
+                    Signal[] signalList = rc.emptySignalQueue();
+                    for (int i = 0; i < signalList.length; i++) {
+                        readSignal(signalList[i]);
+                    }
+                    Clock.yield();
+                } else {
+                    ;
+                }
             } catch (Exception e) {
                 System.out.println(e.getMessage());
                 e.printStackTrace();
             }
         }
-
     }
 
     public static void runGuard() {
-        int robotState = 0;
-        int attackRange = rc.getType().attackRadiusSquared;
+        int robotState = 0; //soldier robot states:
+        // 0 is idle
+        // 1 is follow orders from scout
 
         try {
             ;
@@ -242,16 +263,64 @@ public class RobotPlayer {
             System.out.println(e.getMessage());
             e.printStackTrace();
         }
+
+        while (true) {
+            try{
+                if (robotState == 0) { //robotState is an idle state
+                    Signal first_signal = rc.readSignal();
+                    if(readSignal(first_signal) == 1337) {
+                        robotState = 1;
+                        Clock.yield(); // set the robot's state to 1, yield the rest of the time
+                    }
+                } else if (robotState == 1) { // This is the "in a squadron, following a leader" stage
+                    Signal[] signalList = rc.emptySignalQueue();
+                    for (int i = 0; i < signalList.length; i++) {
+                        readSignal(signalList[i]);
+                    }
+                    Clock.yield();
+                } else {
+                    ;
+                }
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+                e.printStackTrace();
+            }
+        }
     }
 
     public static void runViper() {
-        int robotState = 0;
+        int robotState = 0; //soldier robot states:
+        // 0 is idle
+        // 1 is follow orders from scout
 
         try {
             ;
         } catch (Exception e) {
             System.out.println(e.getMessage());
             e.printStackTrace();
+        }
+
+        while (true) {
+            try{
+                if (robotState == 0) { //robotState is an idle state
+                    Signal first_signal = rc.readSignal();
+                    if(readSignal(first_signal) == 1337) {
+                        robotState = 1;
+                        Clock.yield(); // set the robot's state to 1, yield the rest of the time
+                    }
+                } else if (robotState == 1) { // This is the "in a squadron, following a leader" stage
+                    Signal[] signalList = rc.emptySignalQueue();
+                    for (int i = 0; i < signalList.length; i++) {
+                        readSignal(signalList[i]);
+                    }
+                    Clock.yield();
+                } else {
+                    ;
+                }
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
+                e.printStackTrace();
+            }
         }
     }
 
